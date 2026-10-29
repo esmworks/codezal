@@ -1,0 +1,303 @@
+# Sürüm yayını — `v*` etiketi push'landığında ya da elle çalıştırıldığında.
+#
+# Akış (eski Tauri hattının aynısı, electron-builder'a uyarlanmış):
+#   quality → self-hosted Mac runner: etiket = package.json sürümü, check · lint · test. Düşerse
+#             paketleme hiç başlamaz.
+#   macos   → self-hosted Mac runner: imzalı + notarize edilmiş arm64/x64 DMG ve ZIP, latest-mac.yml.
+#   windows → GitHub runner: NSIS setup.exe ve latest.yml.
+#   publish → self-hosted Linux runner (güncelleme sunucusunun kendisi): artefaktları indirir,
+#             site manifestini (latest.json) üretir ve dosyaları YEREL olarak /var/codezal-updates
+#             altına kopyalar. nginx orayı https://updates.codezal.com/ olarak sunar. SSH yok.
+#
+# Gerekli GitHub Secret'ları (Settings → Secrets and variables → Actions):
+#   APPLE_CERTIFICATE           Developer ID Application .p12, base64
+#   APPLE_CERTIFICATE_PASSWORD  .p12 parolası
+#   APPLE_ID                    Apple hesabı e-postası
+#   APPLE_PASSWORD              uygulamaya özel parola (appleid.apple.com)
+#   APPLE_TEAM_ID               URU3Q835QP
+#
+# Windows kod imzalama sertifikası yok: `.exe` imzasız çıkar ve SmartScreen "bilinmeyen yayıncı"
+# uyarısı verir. Sertifika alınınca `electron-builder.yml` `win` bölümüne eklenir.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  # latest.json/latest-*.yml adreslerinin tabanı. Sonda eğik çizgi yok.
+  UPDATE_BASE_URL: https://updates.codezal.com
+  # nginx'in sunduğu, publish işinin yazdığı dizin.
+  UPDATES_DIR: /var/codezal-updates
+
+jobs:
+  # Paketlemeden önce kapı: CI main'de koşsa da etiket, CI'ı geçmemiş bir commit'e atılabilir.
+  quality:
+    name: Kapı · etiket + check · lint · test
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Sürüm kök package.json "packageManager" alanından okunur.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Etiket ile sürüm ayrışırsa latest.json yanlış sürümü duyurur; en başta durdurulur. Elle
+      # çalıştırma da yalnız bir `v*` etiketinden yapılabilir: daldan tetiklenen koşu denetimi
+      # atlayıp o dalı "latest" olarak yayınlıyordu.
+      - name: Etiket ve sürüm eşleşmesi
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) echo "Yayın yalnız v* etiketinden çalışır (ref: $GITHUB_REF)"; exit 1 ;;
+          esac
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(node -p "require('./apps/desktop/package.json').version")
+          [ "$TAG" = "$VER" ] || { echo "Etiket v$TAG ile package.json $VER uyuşmuyor"; exit 1; }
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tip denetimi
+        run: pnpm check
+
+      - name: Biome
+        run: pnpm lint
+
+      - name: Vitest
+        run: pnpm test
+
+  macos:
+    name: macOS · imzalı DMG + ZIP
+    needs: quality
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # İmza zincirini iş akışı kurar; electron-builder'a CSC_LINK verilmez.
+      # electron-builder 26.15.3 kendi geçici zincirini RASTGELE parolayla açar ama
+      # `set-key-partition-list -k` olarak .p12 parolasını verir (macCodeSign.js importCerts).
+      # macOS 26'da bu "SecKeychainUnlock: ... passphrase ... not correct" ile düşüyor ve
+      # imzalama hiç başlamıyor. Zinciri kendimiz kurunca electron-builder kimliği arama
+      # listesinden otomatik bulur (CSC_IDENTITY_AUTO_DISCOVERY varsayılan açık).
+      - name: İmza zincirini kur
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/codezal-signing.keychain-db"
+          KCPW="$(openssl rand -base64 24)"
+          P12="$RUNNER_TEMP/cert.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$P12"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          security import "$P12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          # codesign özel anahtarı istem çıkarmadan kullanabilsin (runner servis olarak çalışır).
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
+          # Geçici zincir arama listesinin başında; mevcut zincirler korunur.
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$P12"
+          security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+            || { echo "p12 içe aktarıldıktan sonra Developer ID kimliği bulunamadı"; exit 1; }
+          echo "İmza zinciri hazır"
+
+      # Notarize kimliği paketleme bittikten sonra sınanırsa 401 on dakika sonra görülür; bu adım
+      # kimlik bilgilerini başta ve yalnız okuma yapan bir çağrıyla (history) sınar.
+      - name: Notarize kimliğini doğrula
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" >/dev/null \
+            || { echo "notarytool kimlik doğrulaması düştü: APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID secret'larını kontrol et"; exit 1; }
+          echo "Notarize kimliği geçerli"
+
+      - name: Paketle (imza + notarize)
+        env:
+          # CSC_LINK/CSC_KEY_PASSWORD yok: kimlik yukarıda kurulan zincirden keşfedilir.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm --filter @codezal/desktop package:mac
+
+      # electron-builder .app'i notarize edip mühürler ama DMG'ye bilet mühürlemez
+      # ("does not have a ticket stapled"). Legacy hattaki make-dmg gibi DMG'leri de gönderip
+      # mühürlüyoruz; yoksa `release:manifest` içindeki spctl kapısı ve Gatekeeper reddeder.
+      - name: DMG'leri notarize et ve mühürle
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for DMG in apps/desktop/release/*.dmg; do
+            echo "== $DMG =="
+            xcrun notarytool submit "$DMG" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            xcrun stapler staple "$DMG"
+          done
+
+      - name: asar denetimi
+        run: pnpm --filter @codezal/desktop package:inspect
+
+      # Gerileme kapısı: imza ya da notarize atlanmışsa yayın burada durur. Sessizce imzasız
+      # yayınlanan bir DMG kullanıcıda "hasarlı" uyarısı verir ve güncelleme reddedilir.
+      - name: İmza ve notarize doğrulaması
+        run: |
+          set -euo pipefail
+          for APP in apps/desktop/release/mac-arm64/Codezal.app apps/desktop/release/mac/Codezal.app; do
+            echo "== $APP =="
+            codesign -dvv "$APP" 2>&1 | grep -q "Signature=adhoc" \
+              && { echo "Ad-hoc imza: imza zinciri kurulmamış olabilir"; exit 1; } || true
+            codesign --verify --deep --strict "$APP"
+            codesign -dv --verbose=4 "$APP" 2>&1 | grep -q "Authority=Developer ID Application" \
+              || { echo "Developer ID imzası yok: $APP"; exit 1; }
+            xcrun stapler validate "$APP"
+          done
+          for DMG in apps/desktop/release/*.dmg; do
+            echo "== $DMG =="
+            xcrun stapler validate "$DMG" \
+              || { echo "DMG notarize edilmemiş/mühürlenmemiş: $DMG"; exit 1; }
+          done
+
+      - name: macOS çıktılarını yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-files
+          retention-days: 2
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+
+      # Geçici imza zinciri runner'da kalmasın; önceki adım düşse de silinir.
+      - name: İmza zincirini sil
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/codezal-signing.keychain-db" 2>/dev/null || true
+
+  windows:
+    name: Windows · NSIS kurucu
+    needs: quality
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # node-pty ve @napi-rs/canvas hedef platformda derlenir; bu yüzden .exe macOS'ta üretilemez.
+      - name: Paketle
+        run: pnpm --filter @codezal/desktop package:win
+
+      - name: Windows çıktılarını yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-files
+          retention-days: 2
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
+
+  publish:
+    name: Yayınla · updates.codezal.com
+    needs: [macos, windows]
+    runs-on: [self-hosted, Linux]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write # yayın bitince ara artefaktları siler
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Artefaktları indir
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "{mac-files,win-files}"
+          path: apps/desktop/release
+          merge-multiple: true
+
+      # Betik yalnız Node kullanır; güncelleme sunucusunda pnpm install gerekmez.
+      - name: Site manifestini üret
+        working-directory: apps/desktop
+        run: node scripts/release-manifest.mjs
+
+      - name: Dosyaları yayına al
+        run: |
+          set -euo pipefail
+          mkdir -p "$UPDATES_DIR"
+          cd apps/desktop/release
+          # 1) Önce ikililer: manifestler bunlara işaret eder.
+          cp ./*.dmg ./*.exe ./*.zip ./*.blockmap "$UPDATES_DIR"/ 2>/dev/null || true
+          # 2) Manifestler en sona: istemci hiçbir an olmayan dosyayı gösteren manifest görmesin.
+          cp ./latest-mac.yml ./latest.yml "$UPDATES_DIR"/ 2>/dev/null || true
+          cp ./latest.json "$UPDATES_DIR"/latest.json
+          # nginx başka kullanıcı olarak çalışsa da okuyabilmeli.
+          chmod 644 "$UPDATES_DIR"/* 2>/dev/null || true
+          ls -la "$UPDATES_DIR"
+
+      - name: Yayını doğrula
+        working-directory: apps/desktop
+        run: node scripts/verify-release.mjs --base "$UPDATE_BASE_URL"
+
+      # Site Next.js ISR kullanır (revalidate 1800 sn): manifest değişse de indirme kartları yarım
+      # saate kadar eski sürümü gösterebiliyor. Dokploy servisini kesintisiz (start-first) yenileyip
+      # önbelleği tazeliyoruz; sunucuda yalnız bu betiğe izin veren bir sudo kuralı var
+      # (/etc/sudoers.d/codezal-site-refresh).
+      - name: Siteyi tazele (ISR önbelleği)
+        run: sudo -n /usr/local/bin/codezal-refresh-site
+
+      # Başarılı yayından sonra ara artefaktlar silinir; yayın düşerse yeniden denemek için dururlar.
+      - name: Ara artefaktları sil
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          node -e '
+            const h = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json" };
+            const base = `https://api.github.com/repos/${process.env.REPO}`;
+            (async () => {
+              const r = await fetch(`${base}/actions/runs/${process.env.RUN_ID}/artifacts`, { headers: h });
+              const j = await r.json();
+              for (const a of j.artifacts || []) {
+                await fetch(`${base}/actions/artifacts/${a.id}`, { method: "DELETE", headers: h });
+                console.log("silindi:", a.name);
+              }
+            })().catch((e) => { console.log("artefakt temizliği atlandı:", e.message); });
+          '

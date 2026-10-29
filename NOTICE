@@ -1,0 +1,30 @@
+Codezal
+Copyright 2026 Esmworks
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The names "Codezal" and the Codezal logo are trademarks of Esmworks and are not
+licensed under the Apache License. Forks and redistributions must use a different
+name and logo.
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+Pi (https://github.com/earendil-works/pi-coding-agent)
+  The agent engine (@earendil-works/pi-* packages), used as a dependency.
+  MIT License.
+
+Cloudflare security-audit-skill
+  Vendored in apps/desktop/resources/audit/.
+  Copyright (c) 2025-2026 Cloudflare, Inc. MIT License; the full license text
+  is kept in apps/desktop/resources/audit/LICENSE.
+
+--------------------------------------------------------------------------------
+Acknowledgements
+--------------------------------------------------------------------------------
+
+ZCode (https://github.com/zai-org/ZCode), Copyright Z.ai, Apache License 2.0.
+  Several design ideas were inspired by ZCode: two-tier context management
+  (microcompact), the tool result budget, composer prompt history, persisted
+  tool card state, and parts of the slash command and status card UX.

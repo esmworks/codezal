@@ -1,0 +1,36 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm ayarları (pnpm 11+ bunları .npmrc'den değil buradan okur)
+nodeLinker: hoisted
+engineStrict: true
+autoInstallPeers: true
+strictPeerDependencies: false
+saveExact: true
+
+# Yayınlanan hedeflerin ikilileri kurulum platformundan bağımsız indirilir. @napi-rs/canvas gibi
+# paketler platform başına ayrı bir ikili getirir; yalnızca arm64 mac'te kurulunca mac x64,
+# Windows ve Linux paketlerinde taranmış PDF sayfası görüntüye çevrilemiyordu. Pakete yalnızca
+# hedefin işletim sistemine ait olanlar girer (apps/desktop/electron-builder.yml `files`).
+supportedArchitectures:
+  os:
+    - darwin
+    - win32
+    - linux
+  cpu:
+    - x64
+    - arm64
+
+allowBuilds:
+  node-pty: true
+  electron: true
+  esbuild: true
+  "@biomejs/biome": true
+  electron-winstaller: false
+  "@google/genai": false
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - '@playwright/test@1.63.0'
+  - playwright-core@1.63.0
+  - playwright@1.63.0

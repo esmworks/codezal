@@ -1,0 +1,322 @@
+@import "@xterm/xterm/css/xterm.css";
+@import "tailwindcss";
+@import "@codezal/ui/tokens.css";
+
+@source "../../../src/renderer";
+
+/*
+ * Windows ve Linux'ta pencere denetimleri (küçült / büyüt / kapat) içeriğin üstüne, sağ üste
+ * çizilir; o şerit tıklanamaz. `--wco` denetimlerin genişliğidir: üst şeritlerin sağ dolgusu
+ * buna göre büyür. env() tanımsızsa (macOS ve denetimler kapalıyken) yedek değerlerle 0px çıkar.
+ */
+:root {
+  --wco: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px));
+}
+
+/*
+ * Kaydırma çubuğu, uygulama geneli: yol izi yok, yalnızca ince yuvarlak tutamaç.
+ * 10px'lik alan tutma kolaylığı için; görünen tutamaç saydam kenarlıkla 4px'e iner.
+ * Tutamaç macOS'taki gibi yalnızca kaydırma sırasında belirir, sonra iki karede söner:
+ * sınıfları `lib/scrollbars.ts` takar. Eskiden ölçüt kabın `:hover`'ıydı; fare içerideyken
+ * çubuk asılı kalıyor, klavyeyle ya da fare dışarıdayken kaydırınca hiç çıkmıyordu.
+ * Solmayı geçiş ile yapamayız, Chromium kaydırma çubuğu sözde öğelerinde transition çalıştırmaz.
+ * Standart scrollbar-width/scrollbar-color verilmez: Chromium o durumda bu kuralları yok sayar.
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  /* Uzun içerikte tutamaç birkaç piksele inip tutulamaz olmasın. */
+  min-height: 32px;
+}
+.cz-scrolling::-webkit-scrollbar-thumb {
+  background-color: var(--scrollThumb);
+}
+.cz-scroll-fade::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--scrollThumb) 45%, transparent);
+}
+/* İmleç doğrudan tutamacın üstündeyken görünür kalır: kaydırma dursa da sürüklenebilir. */
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollThumbHov);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Modalların giriş animasyonu: hafif yukarı kayma + ölçek. */
+@keyframes cz-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.cz-modal {
+  animation: cz-modal-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Çalışma göstergesi: dönen yay, akan parıltı ve sırayla beliren noktalar. */
+@keyframes cz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes cz-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes cz-dot-1 {
+  0%,
+  24% {
+    opacity: 0;
+  }
+  25%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes cz-dot-2 {
+  0%,
+  49% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes cz-dot-3 {
+  0%,
+  74% {
+    opacity: 0;
+  }
+  75%,
+  100% {
+    opacity: 1;
+  }
+}
+.cz-spin {
+  animation: cz-spin 0.9s linear infinite;
+}
+.cz-shimmer {
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--tx3) 0%,
+    var(--tx3) 35%,
+    var(--tx) 50%,
+    var(--tx3) 65%,
+    var(--tx3) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: cz-shimmer 2.2s linear infinite;
+}
+.cz-dot {
+  animation: cz-dot-1 1.6s steps(1, end) infinite;
+}
+.cz-dot:nth-of-type(2) {
+  animation-name: cz-dot-2;
+}
+.cz-dot:nth-of-type(3) {
+  animation-name: cz-dot-3;
+}
+/*
+ * Sayaç rakamı: değer değişince yalnız değişen rakam döner (ZCode'un kart sayaçlarındaki çevirme).
+ * Yuvada eski rakam altta durur, yenisi ekseninde dönerek yerine oturur; süre ve eğri ZCode'un
+ * çevirme geçişiyle aynıdır (160 ms). Rakamlar mono ölçüde olduğu için yuva genişliği oynamaz.
+ */
+@keyframes cz-turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.45em) rotateX(-90deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cz-turn-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(0.45em) rotateX(90deg);
+  }
+}
+.cz-turn {
+  position: relative;
+  display: inline-block;
+  perspective: 8em;
+}
+.cz-turn-in {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: cz-turn-in 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Çıkan rakam `forwards` ile görünmez kalır: satır yeniden çizilene kadar üstte durmasın. */
+.cz-turn-out {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: cz-turn-out 160ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+/*
+ * Yan panellerin açılma/kapanma kayması. Yalnızca genişlik canlandırılır; içerik
+ * tam genişlikte sabit durduğu için kayarken metin yeniden sarmalanmaz.
+ */
+.cz-slide {
+  transition: width var(--cz-slide-ms, 300ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/*
+ * `/` paneli yazma kutusunun üst uzantısıdır: açılınca kutu yukarı doğru büyür, kapanınca geri
+ * iner. Yükseklik `grid-template-rows` ile canlanır (içerik ölçülmeden `auto`ya geçilebilir);
+ * panel açıkken kutunun üst köşeleri düzleşir ve üst çizgisi kaybolur ki ikisi tek kart olsun.
+ */
+.cz-composer {
+  transition:
+    border-top-left-radius 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-top-right-radius 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 200ms;
+}
+
+.cz-composer:has(> .cz-slash[data-open]) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top-color: transparent;
+}
+
+/* Kapanınca içerik geçiş bitene dek görünür kalır, sonra `visibility` ile gizlenir (gecikmeli
+   ayrık geçiş): çökmüş panelin metni tıklanamaz ve görünür sayılmaz. */
+.cz-slash {
+  visibility: hidden;
+  transition: visibility 0s 220ms;
+}
+
+.cz-slash[data-open] {
+  visibility: visible;
+  transition: visibility 0s;
+}
+
+/* Yükseklik doğrudan `0 → auto` canlanır (`interpolate-size`, Chromium 129+; motor Electron'la
+   sabit). `0fr → 1fr` hilesi mutlak konumlu kapta işe yaramadı: ara değerde iz, kabın kesin
+   yüksekliğinin kesrine yeniden çözülüyor, iç kutu kutunun üstüne değmiyor ve arada boşluk
+   kalıyordu. */
+.cz-slash-body {
+  height: 0;
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  transition: height 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.cz-slash[data-open] .cz-slash-body {
+  height: auto;
+}
+
+/* Tutamaçla genişletirken ve pencere boyutlanırken geçiş kapanır; yoksa panel imlecin ya da
+   pencere kenarının gerisinde kalır. */
+body[data-cz-resizing] .cz-slide {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cz-spin,
+  .cz-shimmer,
+  .cz-dot,
+  .cz-turn-in {
+    animation: none;
+  }
+  /* Çıkan rakam animasyonsuz kalırsa yeni rakamın üstünde durur: hareket kapalıyken hiç çizilmez. */
+  .cz-turn-out {
+    display: none;
+  }
+  .cz-slide,
+  .cz-composer,
+  .cz-slash,
+  .cz-slash-body {
+    transition: none;
+  }
+  .cz-shimmer {
+    color: inherit;
+    background: none;
+  }
+}
+
+/*
+ * Kod yüzeylerinde yumuşatma kapatılır: `html/body` üzerindeki `antialiased` ince çizgi bırakıyor
+ * ve kod (özellikle 12,5px mono) soluk görünüyordu. ZCode aynı yığını yumuşatma ayarı olmadan
+ * kullanıyor; karma (subpixel) çizim harfleri belirginleştirir.
+ */
+.font-code {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+/*
+ * Yazma kutusu ve sohbet balonundaki etiketler (komut, beceri, dosya, yapıştırma).
+ * Simge `::before` maskesiyle çizilir: Lexical metin düğümünün DOM'unda ilk çocuk metin olmalı,
+ * araya `<svg>` girerse imleç eşlemesi bozulur (ZCode'un `prompt-mention` yolu).
+ */
+.cz-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: top;
+  margin: 0 1px;
+  padding: 0 6px 0 5px;
+  border-radius: 6px;
+  background: var(--chip);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--tx);
+  font-weight: 500;
+  cursor: default;
+  white-space: nowrap;
+}
+.cz-token::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  background-color: var(--tx2);
+  mask: var(--cz-token-icon, none) center / contain no-repeat;
+}
+/* Komut adı başlık gibi okunur (`Plan`), taslağa yine `/plan` gider. */
+.cz-token[data-token="command"] {
+  text-transform: capitalize;
+}
+
+/*
+ * Tek renkli dosya simgesi (dosya ağacı): renkli Material SVG'si siyah siluete indirilip gri
+ * tona çevrilir. `mask-image` ile boyamak daha esnek olurdu ama paketli uygulama file://
+ * altında açılıyor ve maske görselleri CORS'a takılıyor; filtre `<img>` ile sorunsuz çalışır.
+ * Tonlar temadaki ikincil metinle üçüncül metin arasında: simge addan önce göze çarpmasın.
+ */
+.cz-file-icon-mono {
+  filter: brightness(0) invert(0.58);
+}
+body[data-cz-light] .cz-file-icon-mono {
+  filter: brightness(0) invert(0.42);
+}

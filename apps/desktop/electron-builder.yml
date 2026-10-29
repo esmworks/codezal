@@ -1,0 +1,163 @@
+appId: com.codezal.app
+productName: Codezal
+copyright: Copyright © 2026 Esmworks
+directories:
+  output: release
+  buildResources: build
+# Paketleme sonrası, imzalama öncesi: linker imzalı native modüller temizlenir (dosyaya bakınız).
+afterPack: build/after-pack.cjs
+# Tüm desenler "!" ile başlar; electron-builder böylece "**/*" tabanını otomatik ekler ve
+# Pi ailesi (dependencies) node_modules olarak asar'a girer (TODO 6).
+files:
+  - "!src/**"
+  - "!design/**"
+  - "!release/**"
+  - "!**/*.map"
+  - "!**/*.{ts,tsx}"
+  - "!**/tsconfig*.json"
+  - "!electron.vite.config.ts"
+  # Yalnız paketleyicinin çalıştırdığı hook; uygulamaya girmez.
+  - "!build/after-pack.cjs"
+  # DMG penceresinin arka planı; yalnız paketleyici okur.
+  - "!build/background.tiff"
+  # Klasor ADINA bakarak eleme YAPILMAZ. Paketlerin calisma zamani kodu bu adlarin altinda
+  # durabiliyor: debug/src/index.js, yaml/dist/doc/directives.js, google-auth-library/build/src/**.
+  # Elenince uygulama acilista "Cannot find module" ile patliyor. Eleme yalniz uzanti ve dosya
+  # adina gore yapilir (asagidaki iki satir).
+  - "!node_modules/**/*.{md,markdown,map,d.ts,d.mts,d.cts,flow}"
+  - "!node_modules/**/{LICENSE,LICENCE,CHANGELOG,README,AUTHORS}*"
+  - "!node_modules/**/.github/**"
+  - "!node_modules/**/*.tsbuildinfo"
+  - "!node_modules/electron/**"
+  - "!node_modules/electron-builder/**"
+  - "!node_modules/.pnpm/**"
+  - "!node_modules/.bin/**"
+  - "!node_modules/**/.env*"
+  # pdfjs Node tarafında yalnızca `legacy/build/pdf.mjs` ve varlık klasörleriyle (standard_fonts,
+  # cmaps, iccs, wasm) kullanılır; tarayıcı görüntüleyicisi, modern yapı ve görüntü çözücüler
+  # pakete girmez. `legacy/build/pdf.worker.mjs` kalır: Node'daki "sahte worker" onu içe aktarır.
+  - "!node_modules/pdfjs-dist/{web,image_decoders,types}/**"
+  - "!node_modules/pdfjs-dist/legacy/{web,image_decoders}/**"
+  - "!node_modules/pdfjs-dist/build/**"
+  - "!node_modules/pdfjs-dist/legacy/build/*.min.mjs"
+  - "!node_modules/pdfjs-dist/legacy/build/pdf.sandbox.mjs"
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+  # Güvenlik denetimi skill paketi (Cloudflare security-audit-skill kopyası); avcılar buradan okur.
+  - from: resources/audit
+    to: audit
+  # Menü çubuğu şablon simgesi; nativeImage `@2x`'i dosya adından kendisi bulur.
+  - from: build/trayTemplate.png
+    to: trayTemplate.png
+  - from: build/trayTemplate@2x.png
+    to: trayTemplate@2x.png
+asarUnpack:
+  - "**/*.node"
+  - "node_modules/node-pty/**"
+  # pdfjs asar dışında durur: Node'daki "sahte worker" `pdf.worker.mjs`'i dinamik `import()` ile
+  # yükler ve yazı tipi/cmap varlıklarını yol üzerinden okur; ikisi de gerçek dosya sistemi ister.
+  - "node_modules/pdfjs-dist/**"
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # Dosya adı arch içermek ZORUNDA: varsayılan şablon x64'te arch'ı yazmaz (Codezal-0.1.0.dmg)
+  # ve site indirme kartları ile latest.json hangi mimari olduğunu ayırt edemez.
+  artifactName: ${productName}-${version}-${arch}-mac.${ext}
+  # @napi-rs/canvas platform başına ayrı bir paket (skia ikilisi ~27 MB); yalnızca hedefin
+  # işletim sistemine ait olanlar pakete girer.
+  files:
+    - "!node_modules/@napi-rs/canvas-{win32,linux,android}*/**"
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarize: APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID tanımlıysa electron-builder
+  # notarize eder ve bileti mühürler. CSC_LINK VERİLMEZ: 26.15.3 kendi geçici zincirini rastgele
+  # parolayla açıp set-key-partition-list'e .p12 parolasını veriyor; imza zincirini iş akışı kurar
+  # (docs/RELEASE.md).
+  notarize: true
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # DMG'nin kendisi de Developer ID ile imzalanir: imzasiz DMG'de Gatekeeper
+  # "no usable signature" der ve notarize bileti DMG'ye mühürlenemez.
+  sign: true
+  # Pencere boyutu `build/background.tiff`'ten gelir (600×352, başlık çubuğu dahil; `dmg.window`
+  # görsel varken yok sayılır). Görsel `scripts/dmg-background.mjs` ile üretilir; oradaki simge
+  # konumlarıyla buradakiler birlikte değişir.
+  iconSize: 96
+  contents:
+    - x: 160
+      y: 148
+      type: file
+    - x: 440
+      y: 148
+      type: link
+      path: /Applications
+    # Gizli dosyalar pencerenin altına itilir: Finder'da gizli dosyalar açıkken (⌘⇧.) simgelerin
+    # arasına dizilmesinler. Aynı içerik ikinci kez kopyalanır; dmgbuild önce kendisi yazar,
+    # sonra bu kayıtlar üzerine aynısını koyup konumlarını .DS_Store'a işler. Yollar
+    # `apps/desktop`'a göredir (paketleme komutları orada çalışır).
+    - x: 160
+      y: 520
+      type: file
+      path: build/icon.icns
+      name: .VolumeIcon.icns
+    - x: 440
+      y: 520
+      type: file
+      path: build/background.tiff
+      name: .background.tiff
+win:
+  icon: build/icon.ico
+  files:
+    - "!node_modules/@napi-rs/canvas-{darwin,linux,android}*/**"
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  language: "1055"
+linux:
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  files:
+    - "!node_modules/@napi-rs/canvas-{darwin,win32,android}*/**"
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64]
+# Sürüm notu: paketleme öncesi `scripts/release-notes.mjs` CHANGELOG'dan yazar; `latest-mac.yml` /
+# `latest.yml` içine `releaseNotes` olarak girer, uygulama içi güncelleme kartı oradan okur.
+releaseInfo:
+  releaseNotesFile: release-notes.md
+# Güncelleme kaynağı kendi sunucumuz. GitHub Releases KULLANILMAZ: güncelleme kanalı deponun
+# görünürlüğünden bağımsız kalır (depo özelken electron-updater'ın anonim isteği 404 alıyordu).
+# `generic` sağlayıcı bu adresten `latest-mac.yml` / `latest.yml` okur; artefaktlar aynı klasörde durmalıdır.
+publish:
+  provider: generic
+  url: https://updates.codezal.com
+  channel: latest
+npmRebuild: true
+# Electron fuse'ları paketlenen ikiliye gömülür (geliştirme ikilisine dokunmaz). Muhafazakâr küme:
+# - runAsNode: false → `ELECTRON_RUN_AS_NODE=1 Codezal ...` ile imzalı ikili düz Node olarak
+#   kullanılamaz. Kodda `process.execPath` ile child süreç açan yer yok (Pi'nin `experimental/`
+#   ve CLI kodu kullanılmıyor); ileride gerekirse `utilityProcess` kullanılmalı.
+# - enableNodeOptionsEnvironmentVariable: false → `NODE_OPTIONS` (ör. `--require`) ile koda sızılamaz.
+#   Not: bu fuse main süreçte `NODE_EXTRA_CA_CERTS`'i de yok sayar; alt süreçler etkilenmez.
+# - enableNodeCliInspectArguments: false → `--inspect` ve SIGUSR1 ile hata ayıklayıcı açılamaz.
+# `onlyLoadAppFromAsar` / `enableEmbeddedAsarIntegrityValidation` bilerek yok: asarUnpack'li paketle
+# (node-pty, pdfjs) doğrulanmadı. `enableCookieEncryption` mevcut çerez deposunu tek yönlü
+# dönüştürdüğü için dokunulmadı.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false

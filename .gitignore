@@ -1,0 +1,64 @@
+# Bağımlılıklar
+node_modules/
+.pnpm-store/
+
+# Derleme çıktıları (packages/* kaynak olarak tüketilir, dist yalnızca kaza eseri oluşur)
+dist/
+out/
+*.tsbuildinfo
+
+# Paketleme — electron-builder çıktısı. apps/desktop/build/ ikon kaynağıdır, izlenir.
+release/
+# Paketleme öncesi CHANGELOG'dan üretilir (release-notes.mjs → releaseInfo.releaseNotesFile).
+apps/desktop/release-notes.md
+*.dmg
+*.pkg
+*.zip
+*.exe
+*.AppImage
+*.blockmap
+
+# Test ve önbellek
+coverage/
+test-results/
+playwright-report/
+.vite/
+.turbo/
+.eslintcache
+
+# Ortam değişkenleri — kimlik bilgisi asla depoya girmez
+.env
+.env.*
+!.env.example
+
+# Günlükler
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editör
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# macOS ve Windows
+.DS_Store
+._*
+Thumbs.db
+
+# Claude Code — launch.json paylaşılır, yerel ayarlar paylaşılmaz
+.claude/settings.local.json
+.worktrees/
+
+# Aracı yerel çalışma klasörü (plan dosyaları vb.)
+.zcode/
+.commandcode/
+.zcodeignore
+
+# Ajan çalışma ağaçları (Claude Code)
+.claude/worktrees/
+
+# Yerel plan notları (açık depoya girmez)
+PRD.md
+TODO.md

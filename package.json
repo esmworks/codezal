@@ -1,0 +1,38 @@
+{
+  "name": "codezal",
+  "version": "1.2.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Codezal — a local-first AI coding agent for the desktop",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @codezal/desktop dev",
+    "build": "pnpm -r --filter './packages/*' build && pnpm --filter @codezal/desktop build",
+    "check": "pnpm -r check",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "node scripts/ensure-electron.mjs && node scripts/fix-node-pty.mjs && node scripts/brand-dev-electron.mjs",
+    "test:e2e": "pnpm --filter @codezal/desktop test:e2e",
+    "bump": "node scripts/bump-version.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.3",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  },
+  "dependencies": {
+    "balanced-match": "4.0.4",
+    "brace-expansion": "5.0.12",
+    "chalk": "5.6.2",
+    "minimatch": "10.2.6",
+    "retry": "0.13.1"
+  }
+}

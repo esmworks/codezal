@@ -1,0 +1,75 @@
+# Kalite kapısı: check · lint · test.
+# main push'u kendi Mac'imizde (self-hosted) koşar; oraya yalnız yazma yetkisi olanlar push'lar.
+# PR'lar GitHub'ın macOS runner'ında koşar: depo açık olduğundan fork'tan gelen bir PR kendi
+# Mac'imizde kod çalıştıramamalı (açık depoda GitHub runner'ları ücretsizdir). İmzalı paket
+# release hattında aynı Mac'te üretilip doğrulanıyor, ayrıca "imzasız paket" işi gereksizdi.
+# Windows işi yalnızca PR'da koşar.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kalite:
+    name: check · lint · test
+    # Push: kendi Mac'imiz (kapalıysa iş kuyrukta bekler). PR: GitHub runner'ı, fork kodu
+    # self-hosted makineye hiç ulaşmaz.
+    runs-on: ${{ github.event_name == 'pull_request' && 'macos-latest' || fromJSON('["self-hosted", "macOS"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Sürüm kök package.json "packageManager" alanından okunur.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Bağımlılıklar
+        run: pnpm install --frozen-lockfile
+
+      - name: Tip denetimi
+        run: pnpm check
+
+      - name: Biome
+        run: pnpm lint
+
+      - name: Vitest
+        run: pnpm test
+
+  windows:
+    name: Windows · check · lint · test
+    # Yalnızca PR'da: kabuk, yol ve dosya kilidi davranışları Windows'ta farklı (git bash,
+    # taskkill, EBUSY); ama doğrudan push'ta GitHub Windows kotası harcanmasın.
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Bağımlılıklar
+        run: pnpm install --frozen-lockfile
+
+      - name: Tip denetimi
+        run: pnpm check
+
+      - name: Biome
+        run: pnpm lint
+
+      - name: Vitest
+        run: pnpm test
