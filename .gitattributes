@@ -1,0 +1,21 @@
+# Normalize line endings: store text files as LF in the repo and check them out as LF on every
+# platform (including Windows with core.autocrlf=true). Biome's formatter expects LF, so CRLF
+# checkouts made the Windows CI job fail at the lint step.
+* text=auto eol=lf
+
+# Binary assets: never touch line endings or attempt textual diffs.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.tiff binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
+*.dmg  binary
+*.exe  binary
